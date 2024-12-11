@@ -214,3 +214,16 @@ namespace WindowsFormsApp3
   <package id="Wodsoft.Extensions.FileSystemGlobbing" version="1.1.1" targetFramework="net48" />
   <package id="Wodsoft.Extensions.Primitives" version="1.1.1" targetFramework="net48" />
 </packages>
+---------------------------------
+ private async void Form1_Load(object sender, EventArgs e)
+        {
+            var rolename = "";
+            graphHelper_delegated = new GraphHelper_delegated();
+            rolename = await graphHelper_delegated.GetUserAppRoles();
+
+            if (rolename.Equals("reportuser"))
+            {
+                button2.Enabled = false;
+            }
+
+        }
