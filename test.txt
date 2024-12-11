@@ -1,0 +1,216 @@
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+using Microsoft.Identity.Client;
+using Microsoft.Graph;
+
+namespace WindowsFormsApp3
+{
+    public class MsalAuthenticationProvider : IAuthenticationProvider
+    {
+        private IConfidentialClientApplication _clientApplication;
+        private string[] _scopes;
+
+        public MsalAuthenticationProvider(IConfidentialClientApplication clientApplication, string[] scopes)
+        {
+            _clientApplication = clientApplication;
+            _scopes = scopes;
+        }
+
+        public async Task AuthenticateRequestAsync(HttpRequestMessage request)
+        {
+            var token = await GetTokenAsync();
+            request.Headers.Authorization = new AuthenticationHeaderValue("bearer", token);
+        }
+        public async Task<string> GetTokenAsync()
+        {
+
+            AuthenticationResult authResult = null;
+            authResult = await _clientApplication.AcquireTokenForClient(_scopes).ExecuteAsync();
+            return authResult.AccessToken;
+        }
+    }
+}
+-----------------------------------------------------------
+
+using Microsoft.Graph;
+using Microsoft.Identity.Client;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading.Tasks;
+
+namespace WindowsFormsApp3
+{
+    public class GraphHelper_delegated
+    {
+        //private static string clientId = "";
+        //private static string tenantId = "";
+        private static string clientId = "76b3c88a-935b-4b2d-8f7b-926db3778fe3";
+        private static string tenantId = "7c0c36f5-af83-4c24-8844-9962e0163719";
+
+        private static string[] scopes = new[] { "User.Read", "Application.Read.All" };
+        private IPublicClientApplication _clientApplication;
+
+        public GraphHelper_delegated()
+        {
+            _clientApplication = PublicClientApplicationBuilder.Create(clientId)
+                .WithAuthority(AzureCloudInstance.AzurePublic, tenantId)
+                //.WithRedirectUri("http://localhost")
+                .Build();
+        }
+
+        public async Task<string> GetTokenAsync()
+        {
+            AuthenticationResult authResult = null;
+            var accounts = await _clientApplication.GetAccountsAsync();
+            try
+            {
+                authResult = await _clientApplication.AcquireTokenSilent(scopes, accounts.FirstOrDefault())
+                    .ExecuteAsync();
+            }
+            catch (MsalUiRequiredException)
+            {
+                authResult = await _clientApplication.AcquireTokenInteractive(scopes)
+                    .ExecuteAsync();
+            }
+            return authResult.AccessToken;
+        }
+
+        public async Task AttachAuthorizationHeader(HttpRequestMessage request)
+        {
+            var token = await GetTokenAsync();
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+
+        public async Task<GraphServiceClient> GetGraphClientAsync()
+        {
+            var graphClient = new GraphServiceClient(new DelegateAuthenticationProvider(async (requestMessage) =>
+            {
+                await AttachAuthorizationHeader(requestMessage);
+            }));
+
+            return graphClient;
+        }
+
+        public async Task<string> GetUserAppRoles()
+        {
+            var graphClient = await GetGraphClientAsync();
+            var rolename = "";
+            try
+            {
+                // Get the currently logged-in user
+                var me = await graphClient.Me.Request().GetAsync();
+                
+                // Get the user's app roles
+                var userAppRoles = await graphClient.Users[me.Id].AppRoleAssignments.Request().GetAsync();
+                
+                foreach (var appRoleAssignment in userAppRoles)
+                {
+                    try
+                    {
+                        var approleId = appRoleAssignment.AppRoleId;
+                        try
+                        {
+                            var applications = await graphClient.Applications
+                                .Request()
+                                .GetAsync();
+                            var appc = applications.Count();
+                            foreach (var sp in applications)
+                            {
+                                foreach (var appRole in sp.AppRoles)
+                                {
+                                    if (approleId.Equals(appRole.Id))
+                                    {
+                                        rolename = appRole.DisplayName;
+                                    }
+                                }
+                            }
+                        }
+                        catch (ServiceException e)
+                        {
+                            Console.WriteLine($"Error: {e.Message}");
+                        }
+
+                    }
+                    catch (ServiceException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        Console.WriteLine($"Application with ResourceId {appRoleAssignment.ResourceId} not found.");
+                    }
+                    
+                }
+                
+            }
+            catch (Exception ex)
+            {
+                // Handle any exceptions that occur during the async call
+                Console.WriteLine($"An error occurred: {ex.Message}");
+            }
+            return rolename;
+        }
+
+        public async Task Checkuserpermission()
+        {
+
+            var graphClient = await GetGraphClientAsync();
+            try
+            {
+                var permissions = await graphClient.Me.CheckMemberGroups(new List<string> { "Application.Read.All", "Directory.Read.All" }).Request().PostAsync();
+
+                if (!permissions.Contains("Application.Read.All") || !permissions.Contains("Directory.Read.All"))
+                {
+                    Console.WriteLine("Missing necessary permissions.");
+                }
+                else
+                {
+                    Console.WriteLine("All necessary permissions are present.");
+                }
+            }
+            catch (Exception ex)
+            {
+                // Handle any exceptions that occur during the async call
+                Console.WriteLine($"An error occurred: {ex.Message}");
+            }
+        }
+    }
+
+}
+---------------------------------------------
+<?xml version="1.0" encoding="utf-8"?>
+<packages>
+  <package id="Microsoft.Bcl" version="1.1.8" targetFramework="net48" />
+  <package id="Microsoft.Bcl.Async" version="1.0.168" targetFramework="net48" />
+  <package id="Microsoft.Bcl.AsyncInterfaces" version="8.0.0" targetFramework="net48" />
+  <package id="Microsoft.Bcl.Build" version="1.0.14" targetFramework="net48" />
+  <package id="Microsoft.Extensions.Configuration" version="9.0.0-rc.2.24473.5" targetFramework="net48" />
+  <package id="Microsoft.Extensions.Configuration.Abstractions" version="9.0.0-rc.2.24473.5" targetFramework="net48" />
+  <package id="Microsoft.Extensions.Configuration.FileExtensions" version="8.0.1" targetFramework="net48" />
+  <package id="Microsoft.Extensions.Configuration.Json" version="8.0.1" targetFramework="net48" />
+  <package id="Microsoft.Extensions.FileProviders.Abstractions" version="8.0.0" targetFramework="net48" />
+  <package id="Microsoft.Extensions.FileProviders.Physical" version="8.0.0" targetFramework="net48" />
+  <package id="Microsoft.Extensions.FileSystemGlobbing" version="8.0.0" targetFramework="net48" />
+  <package id="Microsoft.Extensions.Primitives" version="9.0.0-rc.2.24473.5" targetFramework="net48" />
+  <package id="Microsoft.Graph" version="3.29.0" targetFramework="net48" />
+  <package id="Microsoft.Graph.Core" version="1.25.1" targetFramework="net48" />
+  <package id="Microsoft.Identity.Client" version="4.29.0" targetFramework="net48" />
+  <package id="Newtonsoft.Json" version="6.0.1" targetFramework="net48" />
+  <package id="System.Buffers" version="4.5.1" targetFramework="net48" />
+  <package id="System.Diagnostics.DiagnosticSource" version="4.7.1" targetFramework="net48" />
+  <package id="System.Memory" version="4.5.5" targetFramework="net48" />
+  <package id="System.Numerics.Vectors" version="4.5.0" targetFramework="net48" />
+  <package id="System.Runtime.CompilerServices.Unsafe" version="6.0.0" targetFramework="net48" />
+  <package id="System.Text.Encodings.Web" version="8.0.0" targetFramework="net48" />
+  <package id="System.Text.Json" version="8.0.5" targetFramework="net48" />
+  <package id="System.Threading.Tasks.Extensions" version="4.5.4" targetFramework="net48" />
+  <package id="System.ValueTuple" version="4.5.0" targetFramework="net48" />
+  <package id="Wodsoft.DotNet40.Runtime" version="1.0.1" targetFramework="net48" />
+  <package id="Wodsoft.Extensions.Configuration" version="1.1.2" targetFramework="net48" />
+  <package id="Wodsoft.Extensions.Configuration.Abstractions" version="1.1.2" targetFramework="net48" />
+  <package id="Wodsoft.Extensions.Configuration.FileExtensions" version="1.1.2" targetFramework="net48" />
+  <package id="Wodsoft.Extensions.FileProviders.Abstractions" version="1.1.1" targetFramework="net48" />
+  <package id="Wodsoft.Extensions.FileProviders.Physical" version="1.1.1" targetFramework="net48" />
+  <package id="Wodsoft.Extensions.FileSystemGlobbing" version="1.1.1" targetFramework="net48" />
+  <package id="Wodsoft.Extensions.Primitives" version="1.1.1" targetFramework="net48" />
+</packages>
